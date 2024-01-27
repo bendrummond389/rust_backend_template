@@ -8,7 +8,6 @@ use serde::Serialize;
 pub struct NewUser<'a> {
     pub name: &'a str,
     pub email: &'a str,
-    // other fields
 }
 
 #[derive(Queryable, Serialize)]
@@ -16,5 +15,4 @@ pub struct User {
     pub id: i32,
     pub name: String,
     pub email: String,
-    // Include other fields that your users table contains
 }

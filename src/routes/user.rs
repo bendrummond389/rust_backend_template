@@ -15,21 +15,15 @@ pub async fn create_user_endpoint(user_data: web::Json<UserData>) -> impl Respon
     let new_user = NewUser {
         name: &user_data.name,
         email: &user_data.email,
-        // Map other fields as necessary
     };
 
     // Call the controller function to create a user
     match user_controller::create_user(new_user) {
-        Ok(user) => HttpResponse::Ok().json(user), // Send a success response
-        Err(_) => HttpResponse::InternalServerError().finish(), // Send an error response
+        Ok(user) => HttpResponse::Ok().json(user),
+        Err(_) => HttpResponse::InternalServerError().finish(),
     }
 }
 
-
 pub fn configure(cfg: &mut web::ServiceConfig) {
-  cfg.service(
-      web::resource("/users")
-          .route(web::post().to(create_user_endpoint)),
-  );
-  // Add other user-related routes here if necessary
+    cfg.service(web::resource("/users").route(web::post().to(create_user_endpoint)));
 }
