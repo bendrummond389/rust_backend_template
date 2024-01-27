@@ -1,2 +1,19 @@
+# Compiled files
 /target
-combined.txt
+
+# Remove Cargo.lock from the repository if your project is a library
+# Cargo.lock
+
+# Environment variables
+.env
+
+# Editor directories and files
+.idea/
+.vscode/
+*.swp
+
+# Operating System Files
+.DS_Store
+
+# Rust artifacts
+*.rs.bk
