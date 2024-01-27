@@ -1,5 +1,6 @@
 use crate::controllers::user_controller;
 use crate::models::user::NewUser;
+use actix_web::web::Path;
 use actix_web::{web, HttpResponse, Responder};
 use serde::Deserialize;
 
@@ -24,6 +25,14 @@ pub async fn create_user_endpoint(user_data: web::Json<UserData>) -> impl Respon
     }
 }
 
+pub async fn get_user_endpoint(user_id: Path<i32>) -> impl Responder {
+    match user_controller::get_user(user_id.into_inner()) {
+        Ok(user) => HttpResponse::Ok().json(user),
+        Err(_) => HttpResponse::NotFound().finish(),
+    }
+}
+
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.service(web::resource("/users").route(web::post().to(create_user_endpoint)));
+    cfg.service(web::resource("/users").route(web::post().to(create_user_endpoint)))
+        .service(web::resource("/users/{id}").route(web::get().to(get_user_endpoint)));
 }
