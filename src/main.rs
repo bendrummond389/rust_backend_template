@@ -1,6 +1,6 @@
 use actix_web::{web, App, HttpServer};
-use std::io;
 use code2media::routes::user::configure;
+use std::io;
 
 #[actix_web::main]
 async fn main() -> io::Result<()> {
