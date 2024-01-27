@@ -1,6 +1,5 @@
 use actix_web::{web, App, HttpServer};
 use std::io;
-
 use code2media::routes::user::configure;
 
 #[actix_web::main]
