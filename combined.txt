@@ -1,112 +1,74 @@
-File: ./tests/mod.rs
-mod users;
+File: ./tests/utils/mod.rs
+pub mod containers;
+mod seed;
+mod setup;
 
-File: ./tests/users/create_user_test.rs
-use actix_web::{test, App};
-use code2media::routes::user::configure;
-use env_logger;
-use serde_json::json;
-use std::env;
+pub use self::seed::seed_database;
+pub use self::setup::establish_connection_and_run_migrations;
 
-#[actix_rt::test]
-async fn test_user_creation() {
-    let _ = env_logger::try_init();
-    env::set_var("RUNNING_TEST", "1");
-
-    let mut app = test::init_service(App::new().configure(configure)).await;
-
-    let user_data = json!({
-        "name": "Test User",
-        "email": "test@example.com"
-    });
-
-    let req = test::TestRequest::post()
-        .uri("/users")
-        .set_json(&user_data)
-        .to_request();
-
-    let resp = test::call_service(&mut app, req).await;
-
-    assert!(resp.status().is_success(), "Failed to create user");
+File: ./tests/utils/containers/docker_setup.rs
+pub fn generate_database_url(port: u16) -> String {
+    format!(
+        "postgres://test_user:test_password@localhost:{}/postgres",
+        port
+    )
 }
 
-File: ./tests/users/mod.rs
-mod create_user_test;
-mod get_user_test;
+File: ./tests/utils/containers/pg_image.rs
+use std::collections::HashMap;
+use testcontainers::core::{Image, WaitFor};
 
-File: ./tests/users/get_user_test.rs
-use actix_web::{test, App};
-use code2media::routes::user::configure;
-use serde_json::json;
-use serde_json::Value;
-use std::env;
+const NAME: &str = "postgres";
+const TAG: &str = "16-alpine";
 
-#[actix_rt::test]
-async fn test_user_fetching() {
-    let _ = env_logger::try_init();
-    env::set_var("RUNNING_TEST", "1");
-
-    let mut app = test::init_service(App::new().configure(configure)).await;
-
-    let user_data = json!({
-      "name": "Test User",
-      "email": "test@example.com"
-    });
-
-    let create_req = test::TestRequest::post()
-        .uri("/users")
-        .set_json(&user_data)
-        .to_request();
-    let create_resp = test::call_service(&mut app, create_req).await;
-    assert!(create_resp.status().is_success(), "Failed to create user");
-
-    let created_user: Value = test::read_body_json(create_resp).await;
-    let user_id = created_user["id"].as_i64().expect("Failed to get user ID");
-
-    // Fetch the created user
-    let fetch_req = test::TestRequest::get()
-        .uri(&format!("/users/{}", user_id))
-        .to_request();
-    let fetch_resp = test::call_service(&mut app, fetch_req).await;
-    assert!(fetch_resp.status().is_success(), "Failed to fetch user");
-
-    // Verify the fetched user
-    let fetched_user: Value = test::read_body_json(fetch_resp).await;
-    assert_eq!(
-        fetched_user["id"].as_i64(),
-        Some(user_id),
-        "Fetched user ID does not match"
-    );
+#[derive(Debug)]
+pub struct PostgresImage {
+    env_vars: HashMap<String, String>,
 }
 
-File: ./src/bin/seed_database.rs
-extern crate code2media;
+impl Default for PostgresImage {
+    fn default() -> Self {
+        let mut env_vars = HashMap::new();
+        env_vars.insert("POSTGRES_USER".to_owned(), "test_user".to_owned());
+        env_vars.insert("POSTGRES_PASSWORD".to_owned(), "test_password".to_owned());
+        env_vars.insert("POSTGRES_DB".to_owned(), "postgres".to_owned());
+        env_vars.insert("POSTGRES_HOST_AUTH_METHOD".into(), "trust".into());
 
-use code2media::utils::seed::seed_database;
-
-fn main() {
-    let database_url = "postgres://test_user:test_password@localhost:5433/postgres_test";
-    seed_database(database_url);
+        Self { env_vars }
+    }
 }
 
-File: ./src/lib.rs
+impl Image for PostgresImage {
+    type Args = ();
 
-pub mod controllers;
-pub mod db;
-pub mod models;
-pub mod routes;
-pub mod schema;
-pub mod utils;
+    fn name(&self) -> String {
+        NAME.to_owned()
+    }
 
-// If you want to re-export items for direct use in main.rs
-pub use db::*;
-pub use models::*;
-pub use crate::routes::user::configure;
-File: ./src/utils/mod.rs
-pub mod seed;
-File: ./src/utils/seed.rs
-use crate::schema::users;
-use crate::user::NewUser;
+    fn tag(&self) -> String {
+        TAG.to_owned()
+    }
+
+    fn ready_conditions(&self) -> Vec<WaitFor> {
+        vec![
+            WaitFor::StdOutMessage {
+                message: "database system is ready to accept connections".to_string(),
+            },
+            WaitFor::seconds(1),
+        ]
+    }
+
+    fn env_vars(&self) -> Box<dyn Iterator<Item = (&String, &String)> + '_> {
+        Box::new(self.env_vars.iter())
+    }
+}
+
+File: ./tests/utils/containers/mod.rs
+pub mod pg_image;
+pub mod docker_setup;
+File: ./tests/utils/seed.rs
+use code2media::schema::users;
+use code2media::user::NewUser;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 
@@ -132,6 +94,141 @@ pub fn seed_database(database_url: &str) {
             .expect("Error seeding user");
     }
 }
+
+File: ./tests/utils/setup.rs
+use diesel::{Connection, PgConnection};
+use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
+use log::{error, info};
+
+type DB = diesel::pg::Pg;
+
+const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
+
+pub fn establish_connection_and_run_migrations(database_url: &str) -> PgConnection {
+    let mut connection = PgConnection::establish(database_url)
+        .unwrap_or_else(|_| panic!("Error connecting to {}", database_url));
+    run_database_migrations(&mut connection);
+    connection
+}
+
+fn run_database_migrations(conn: &mut impl MigrationHarness<DB>) {
+    match conn.run_pending_migrations(MIGRATIONS) {
+        Ok(_) => info!("Migrations run successfully"),
+        Err(e) => error!("Error running migrations: {}", e),
+    }
+}
+
+File: ./tests/mod.rs
+mod users;
+mod utils;
+File: ./tests/users/create_user_test.rs
+use crate::utils::containers::docker_setup::generate_database_url;
+use crate::utils::containers::pg_image::PostgresImage;
+use crate::utils::establish_connection_and_run_migrations;
+use crate::utils::seed_database;
+use actix_web::{test, App};
+use code2media::routes::user::configure;
+use serde_json::json;
+use std::env;
+use std::thread;
+use std::time;
+use testcontainers::clients;
+
+#[actix_rt::test]
+async fn test_user_creation() {
+    let docker = clients::Cli::default();
+    let image = PostgresImage::default();
+    let container = docker.run(image);
+    let port = container.get_host_port_ipv4(5432);
+
+    let database_url = generate_database_url(port);
+    env::set_var("DATABASE_URL", &database_url);
+
+    establish_connection_and_run_migrations(&database_url);
+
+    seed_database(&database_url);
+
+    thread::sleep(time::Duration::from_secs(60));
+
+    let mut app = test::init_service(App::new().configure(configure)).await;
+
+    let user_data = json!({
+        "name": "Test User",
+        "email": "test@example.com"
+    });
+
+    // Create a request for user creation
+    let req = test::TestRequest::post()
+        .uri("/users")
+        .set_json(&user_data)
+        .to_request();
+
+    // Call service with the request
+    let resp = test::call_service(&mut app, req).await;
+
+    // Assert the response
+    assert!(resp.status().is_success(), "Failed to create user");
+}
+
+File: ./tests/users/mod.rs
+mod create_user_test;
+// mod get_user_test;
+
+File: ./tests/users/get_user_test.rs
+use crate::utils::containers::docker_setup::generate_database_url;
+use crate::utils::containers::pg_image::PostgresImage;
+use crate::utils::establish_connection_and_run_migrations;
+use crate::utils::seed_database;
+use actix_web::{test, App};
+use code2media::routes::user::configure;
+use serde_json::Value;
+use std::env;
+
+use testcontainers::clients;
+
+#[actix_rt::test]
+async fn test_user_fetching() {
+    let docker = clients::Cli::default();
+    let image = PostgresImage::default();
+    let container = docker.run(image);
+    let port = container.get_host_port_ipv4(5432);
+    let user_id = 1;
+
+    let database_url = generate_database_url(port);
+    env::set_var("DATABASE_URL", &database_url);
+
+    establish_connection_and_run_migrations(&database_url);
+
+    seed_database(&database_url);
+
+    let mut app = test::init_service(App::new().configure(configure)).await;
+
+    // Fetch the created user
+    let fetch_req = test::TestRequest::get()
+        .uri(&format!("/users/{}", user_id))
+        .to_request();
+    let fetch_resp = test::call_service(&mut app, fetch_req).await;
+    assert!(fetch_resp.status().is_success(), "Failed to fetch user");
+
+    // Verify the fetched user
+    let fetched_user: Value = test::read_body_json(fetch_resp).await;
+    assert_eq!(
+        fetched_user["id"].as_i64(),
+        Some(user_id),
+        "Fetched user ID does not match"
+    );
+}
+
+File: ./src/lib.rs
+pub mod controllers;
+pub mod db;
+pub mod models;
+pub mod routes;
+pub mod schema;
+
+pub use crate::routes::user::configure;
+pub use db::*;
+pub use models::*;
 
 File: ./src/models/user.rs
 use crate::schema::users;
@@ -183,10 +280,7 @@ pub fn establish_connection() -> PgConnection {
     dotenv().ok();
 
     // Check if we are in a test environment
-    let database_url = match env::var("RUNNING_TEST") {
-        Ok(_) => env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set"),
-        Err(_) => env::var("DATABASE_URL").expect("DATABASE_URL must be set"),
-    };
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
     PgConnection::establish(&database_url)
         .unwrap_or_else(|_| panic!("Error connecting to {}", database_url))
@@ -228,6 +322,8 @@ pub fn get_user(user_id: i32) -> Result<User, diesel::result::Error> {
 
     users::table.find(user_id).first(&mut conn)
 }
+
+
 
 File: ./src/controllers/mod.rs
 pub mod user_controller;

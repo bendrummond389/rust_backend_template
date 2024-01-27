@@ -33,9 +33,12 @@ impl Image for PostgresImage {
     }
 
     fn ready_conditions(&self) -> Vec<WaitFor> {
-        vec![WaitFor::StdOutMessage {
-            message: "database system is ready to accept connections".to_string(),
-        }]
+        vec![
+            WaitFor::StdOutMessage {
+                message: "database system is ready to accept connections".to_string(),
+            },
+            WaitFor::seconds(1),
+        ]
     }
 
     fn env_vars(&self) -> Box<dyn Iterator<Item = (&String, &String)> + '_> {

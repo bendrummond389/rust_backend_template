@@ -1,5 +1,5 @@
 use crate::utils::containers::docker_setup::generate_database_url;
-use crate::utils::containers::docker_setup::prepare_postgres_image;
+use crate::utils::containers::pg_image::PostgresImage;
 use crate::utils::establish_connection_and_run_migrations;
 use crate::utils::seed_database;
 use actix_web::{test, App};
@@ -12,7 +12,7 @@ use testcontainers::clients;
 #[actix_rt::test]
 async fn test_user_fetching() {
     let docker = clients::Cli::default();
-    let image = prepare_postgres_image();
+    let image = PostgresImage::default();
     let container = docker.run(image);
     let port = container.get_host_port_ipv4(5432);
     let user_id = 1;
