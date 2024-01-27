@@ -4,3 +4,4 @@ users = { max-threads = 1 }
 [[profile.default.overrides]]
 filter = 'test(users::)'
 test-group = 'users'
+# success-output = "immediate"

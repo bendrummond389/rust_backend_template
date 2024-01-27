@@ -1,5 +1,5 @@
-use crate::schema::users;
-use crate::user::NewUser;
+use code2media::schema::users;
+use code2media::user::NewUser;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 
