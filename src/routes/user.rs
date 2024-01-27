@@ -8,7 +8,6 @@ use serde::Deserialize;
 pub struct UserData {
     name: String,
     email: String,
-    // Add other fields as necessary
 }
 
 pub async fn create_user_endpoint(user_data: web::Json<UserData>) -> impl Responder {
