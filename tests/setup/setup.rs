@@ -1,40 +1,49 @@
 use diesel::connection::Connection;
-use diesel::migration::{MigrationSource, MigrationVersion};
 use diesel::pg::PgConnection;
-use diesel::prelude::*;
 use diesel_migrations::{embed_migrations, EmbeddedMigrations, MigrationHarness};
 use dotenv::dotenv;
+use log::{error, info};
 use std::env;
 
 const MIGRATIONS: EmbeddedMigrations = embed_migrations!();
 
 type DB = diesel::pg::Pg;
 
-pub fn run_db_migrations(conn: &mut impl MigrationHarness<DB>) {
-    conn.run_pending_migrations(MIGRATIONS)
-        .expect("Could not run migrations");
+fn establish_connection(database_url: &str) -> Result<PgConnection, String> {
+    PgConnection::establish(&database_url)
+        .map_err(|e| format!("Error connecting to database: {}", e))
 }
 
-pub fn revert_db_migrations(conn: &mut impl MigrationHarness<DB>) {
-    conn.revert_all_migrations(MIGRATIONS)
-        .expect("Could not run migrations");
+fn run_database_migrations(conn: &mut impl MigrationHarness<DB>) {
+    match conn.run_pending_migrations(MIGRATIONS) {
+        Ok(_) => info!("Migrations run successfully"),
+        Err(e) => error!("Error reverting migrations: {}", e),
+    }
+}
+
+fn revert_database_migrations(conn: &mut impl MigrationHarness<DB>) {
+    match conn.revert_all_migrations(MIGRATIONS) {
+        Ok(_) => info!("Migrations reverted successfully"),
+        Err(e) => error!("Error reverting migrations: {}", e),
+    }
+}
+
+fn get_database_url() -> String {
+    dotenv().ok();
+    let database_url = env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set");
+    database_url
 }
 
 pub fn prepare_test_db() -> Result<(), String> {
-    dotenv().ok();
-    let database_url = env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set");
-
-    let mut connection = PgConnection::establish(&database_url).expect("failed to connect to db");
-
-    run_db_migrations(&mut connection);
+    let database_url = get_database_url();
+    let mut connection = establish_connection(&database_url)?;
+    run_database_migrations(&mut connection);
     Ok(())
 }
 
 pub fn revert_test_db() -> Result<(), String> {
-    dotenv().ok();
-    let database_url = env::var("TEST_DATABASE_URL").expect("TEST_DATABASE_URL must be set");
-
-    let mut connection = PgConnection::establish(&database_url).expect("failed to connect to db");
-    revert_db_migrations(&mut connection);
+    let database_url = get_database_url();
+    let mut connection = establish_connection(&database_url)?;
+    revert_database_migrations(&mut connection);
     Ok(())
 }
